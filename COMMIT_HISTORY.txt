@@ -1,0 +1,3 @@
+08e63eec9c725de5eaafaeeb77c68ec6a0849217 Document evaluations and recovery evidence
+7e67a52b26b572deb726752eecd6b4e12cddcb73 Add safe fallback for missing and unsupported cases
+fd8d6c893142c7537de994cab600ed74bc502763 Implement assessment core before public audit

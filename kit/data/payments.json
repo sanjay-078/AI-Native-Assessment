@@ -1,0 +1,32 @@
+[
+  {
+    "tenant_id": "atlas",
+    "payment_id": "pay_shared",
+    "status": "held"
+  },
+  {
+    "tenant_id": "atlas",
+    "payment_id": "pay_held",
+    "status": "held"
+  },
+  {
+    "tenant_id": "atlas",
+    "payment_id": "pay_paid",
+    "status": "paid"
+  },
+  {
+    "tenant_id": "boreal",
+    "payment_id": "pay_shared",
+    "status": "paid"
+  },
+  {
+    "tenant_id": "boreal",
+    "payment_id": "pay_held",
+    "status": "held"
+  },
+  {
+    "tenant_id": "boreal",
+    "payment_id": "pay_paid",
+    "status": "paid"
+  }
+]

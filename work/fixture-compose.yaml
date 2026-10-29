@@ -1,0 +1,6 @@
+services:
+  worker:
+    environment:
+      LLM_BASE_URL: http://kit:8091/v1
+      LLM_API_KEY: kit-model-token
+      LLM_MODEL: fixture

@@ -1,0 +1,19 @@
+.env
+node_modules/
+.venv/
+__pycache__/
+*.sqlite*
+results/
+.env
+.env.*
+*.pem
+*.key
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+*.log
+*.bak
+.DS_Store
+kit/data/auth copy.txt
+*.backup-*

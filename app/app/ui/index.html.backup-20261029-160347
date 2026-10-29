@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Native Assessment Console</title>
+<style>
+:root {
+  font-family: system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+  background: #f4f6fa;
+  color: #192435;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+header {
+  padding: 24px max(20px, calc((100vw - 1100px)/2));
+  background: #172b4d;
+  color: white;
+}
+header h1 { margin: 0 0 6px; font-size: 25px; }
+header p { margin: 0; color: #c8d4e8; }
+main {
+  max-width: 1100px;
+  margin: 24px auto;
+  padding: 0 18px;
+  display: grid;
+  gap: 20px;
+}
+section {
+  background: white;
+  padding: 24px;
+  border: 1px solid #e0e5ee;
+  border-radius: 14px;
+}
+h2 { margin-top: 0; font-size: 19px; }
+h3 { font-size: 15px; margin-bottom: 8px; }
+label {
+  display: block;
+  margin: 14px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+input, textarea, button { font: inherit; }
+input, textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #cbd4e0;
+  border-radius: 8px;
+}
+textarea { min-height: 100px; resize: vertical; }
+button {
+  padding: 11px 16px;
+  background: #2459bd;
+  color: white;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 14px;
+}
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.secondary { background: #e8edf5; color: #172b4d; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.muted { color: #687589; font-size: 14px; }
+pre {
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 16px;
+  background: #f3f6fa;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.status {
+  display: inline-block;
+  padding: 5px 10px;
+  background: #e9edf4;
+  border-radius: 20px;
+  font-weight: 600;
+}
+.citation {
+  border-left: 3px solid #2459bd;
+  background: #f3f6fa;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+#error {
+  color: #ac2020;
+  white-space: pre-wrap;
+  margin-top: 12px;
+}
+#answer { white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .grid { grid-template-columns: 1fr; }
+  section { padding: 18px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>AI Native Assessment</h1>
+  <p>Operations agent — requests, evidence and approvals</p>
+</header>
+
+<main>
+<section>
+  <h2>Authentication</h2>
+  <p class="muted">
+    Enter a local assessment token from kit/data/auth.json.
+    Tokens are not saved in browser storage.
+  </p>
+  <label for="token">Access token</label>
+  <input id="token" type="password"
+         placeholder="Enter reader or reviewer token"
+         autocomplete="off">
+</section>
+
+<div class="grid">
+<section>
+  <h2>New AI request</h2>
+  <form id="requestForm">
+    <label for="message">Your question</label>
+    <textarea id="message" maxlength="12000" required
+      placeholder="What is the standard service fee?"></textarea>
+
+    <label for="payment">Payment ID (optional)</label>
+    <input id="payment" maxlength="64"
+           placeholder="pay_held">
+
+    <button type="submit" id="submit">Submit request</button>
+  </form>
+</section>
+
+<section>
+  <h2>Inspect existing run</h2>
+  <label for="runId">Run ID</label>
+  <input id="runId" placeholder="r_...">
+
+  <button type="button" id="load" class="secondary">
+    Load run
+  </button>
+  <button type="button" id="refresh" class="secondary">
+    Refresh
+  </button>
+
+  <h3>Execution status</h3>
+  <span class="status" id="status">No run selected</span>
+  <p class="muted" id="runInfo"></p>
+</section>
+</div>
+
+<section>
+  <h2>AI response</h2>
+  <p id="answer" class="muted">Submit a request to see its result.</p>
+
+  <h3>Policy evidence and citations</h3>
+  <div id="citations" class="muted">No evidence yet.</div>
+
+  <h3>Payment status</h3>
+  <p id="paymentStatus">—</p>
+</section>
+
+<section>
+  <h2>Human approval</h2>
+  <p id="actionStatus" class="muted">No proposed action.</p>
+  <pre id="proposal">No action proposal.</pre>
+  <button type="button" id="approve" disabled>
+    Approve exact proposal
+  </button>
+  <p class="muted">
+    Only an authenticated reviewer can approve.
+    Approval is required before execution.
+  </p>
+</section>
+
+<section>
+  <h2>Execution trace</h2>
+  <p class="muted">Persisted retrieval, tool, model and approval events.</p>
+  <pre id="trace">No trace available.</pre>
+</section>
+
+<section id="error" role="alert" aria-live="polite" hidden></section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let currentRun = null;
+let currentAction = null;
+let timer = null;
+
+function errorMessage(error) {
+  $('error').hidden = false;
+  $('error').textContent = error.message || String(error);
+}
+
+function clearError() {
+  $('error').hidden = true;
+  $('error').textContent = '';
+}
+
+async function api(path, method = 'GET', payload = null) {
+  const token = $('token').value.trim();
+  if (!token) throw new Error('Enter your assessment access token.');
+
+  const headers = {Authorization: `Bearer ${token}`};
+  if (payload !== null) headers['Content-Type'] = 'application/json';
+
+  const response = await fetch(path, {
+    method,
+    headers,
+    body: payload === null ? undefined : JSON.stringify(payload)
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(
+      `HTTP ${response.status}: ` +
+      (data.message || data.detail?.message || JSON.stringify(data))
+    );
+  }
+  return data;
+}
+
+function displayCitations(citations) {
+  const container = $('citations');
+  container.replaceChildren();
+
+  if (!citations?.length) {
+    container.textContent = 'No policy citations.';
+    return;
+  }
+
+  for (const citation of citations) {
+    const card = document.createElement('div');
+    card.className = 'citation';
+
+    const heading = document.createElement('strong');
+    heading.textContent =
+      `${citation.document_id} — version ${citation.version}`;
+
+    const quote = document.createElement('p');
+    quote.textContent = citation.quote;
+
+    card.append(heading, quote);
+    container.appendChild(card);
+  }
+}
+
+function displayRun(run) {
+  currentAction = run.action || null;
+
+  $('status').textContent = run.status;
+  $('runInfo').textContent = `Run ID: ${run.run_id}`;
+  $('answer').textContent =
+    run.result?.answer ||
+    (run.error ? JSON.stringify(run.error, null, 2) :
+      'Processing request...');
+
+  $('paymentStatus').textContent =
+    run.result?.payment_status || 'Not applicable';
+
+  displayCitations(run.result?.citations);
+
+  $('actionStatus').textContent =
+    currentAction
+      ? `Action status: ${currentAction.status}`
+      : 'No proposed action.';
+
+  $('proposal').textContent =
+    run.result?.proposed_action
+      ? JSON.stringify({
+          ...run.result.proposed_action,
+          action_id: currentAction?.action_id,
+          payload_hash: currentAction?.payload_hash,
+          receipt: currentAction?.receipt || null
+        }, null, 2)
+      : 'No action proposal.';
+
+  $('approve').disabled =
+    !currentAction || currentAction.status !== 'pending_approval';
+}
+
+async function refreshRun() {
+  clearTimeout(timer);
+  if (!currentRun) return;
+
+  try {
+    clearError();
+
+    const id = encodeURIComponent(currentRun);
+    const run = await api(`/v1/runs/${id}`);
+    displayRun(run);
+
+    const trace = await api(`/v1/runs/${id}/trace`);
+    $('trace').textContent =
+      JSON.stringify(trace.events, null, 2);
+
+    const processing = ['queued', 'running'].includes(run.status);
+    const executing =
+      ['approved', 'executing'].includes(run.action?.status);
+
+    if (processing || executing) {
+      timer = setTimeout(refreshRun, 2000);
+    }
+  } catch (error) {
+    errorMessage(error);
+  }
+}
+
+$('requestForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  clearError();
+  clearTimeout(timer);
+
+  $('submit').disabled = true;
+
+  try {
+    const payload = {
+      request_id: 'ui-' + crypto.randomUUID().replaceAll('-', ''),
+      message: $('message').value.trim()
+    };
+
+    const payment = $('payment').value.trim();
+    if (payment) payload.payment_id = payment;
+
+    const result = await api('/v1/runs', 'POST', payload);
+    currentRun = result.run_id;
+    $('runId').value = currentRun;
+    await refreshRun();
+  } catch (error) {
+    errorMessage(error);
+  } finally {
+    $('submit').disabled = false;
+  }
+});
+
+$('load').addEventListener('click', () => {
+  clearTimeout(timer);
+  currentRun = $('runId').value.trim();
+  refreshRun();
+});
+
+$('refresh').addEventListener('click', refreshRun);
+
+$('approve').addEventListener('click', async () => {
+  if (!currentRun || !currentAction) return;
+
+  if (!confirm('Approve this exact follow-up action?')) return;
+
+  $('approve').disabled = true;
+  clearError();
+
+  try {
+    await api(
+      `/v1/runs/${encodeURIComponent(currentRun)}/approve`,
+      'POST',
+      {
+        action_id: currentAction.action_id,
+        payload_hash: currentAction.payload_hash
+      }
+    );
+    await refreshRun();
+  } catch (error) {
+    errorMessage(error);
+    $('approve').disabled = false;
+  }
+});
+</script>
+</body>
+</html>

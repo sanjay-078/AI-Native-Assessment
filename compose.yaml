@@ -1,0 +1,67 @@
+# Working kit infrastructure. Add your api and worker services here.
+# Required service names: api (host8090), worker, db, kit.
+# API and worker must use PostgreSQL for durable application state.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: assessment_ai
+      POSTGRES_USER: assessment_ai
+      POSTGRES_PASSWORD: local-assessment-only
+    volumes:
+      - app-db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U assessment_ai -d assessment_ai"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  kit:
+    build: ./kit
+    ports:
+      - "${KIT_PORT:-8091}:8091"
+    volumes:
+      - "${ASSESSMENT_DATA_DIR:-./kit/data}:/assessment-data:ro"
+      - kit-state:/state
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8091/healthz')"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  api:
+    build: ./app
+    ports:
+      - "8090:8090"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://assessment_ai:local-assessment-only@db:5432/assessment_ai}
+      DATA_DIR: /assessment-data
+    volumes:
+      - "${ASSESSMENT_DATA_DIR:-./kit/data}:/assessment-data:ro"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8090/healthz')"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  worker:
+    build: ./app
+    command: [python, -m, app.worker]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://assessment_ai:local-assessment-only@db:5432/assessment_ai}
+      DATA_DIR: /assessment-data
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://kit:8091/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-kit-model-token}
+      LLM_MODEL: ${LLM_MODEL:-fixture}
+      TOOL_BASE_URL: ${TOOL_BASE_URL:-http://kit:8091}
+      TOOL_API_KEY: ${TOOL_API_KEY:-kit-tool-token}
+    volumes:
+      - "${ASSESSMENT_DATA_DIR:-./kit/data}:/assessment-data:ro"
+    depends_on:
+      db:
+        condition: service_healthy
+      kit:
+        condition: service_healthy
+volumes:
+  app-db:
+  kit-state:
